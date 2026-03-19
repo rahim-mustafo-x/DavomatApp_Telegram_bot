@@ -2,31 +2,42 @@ from aiogram import types, Router, F
 from aiogram.fsm.context import FSMContext
 from model.passwordstate import PasswordState
 from service import update_password
-router = Router()
 from config import ADMIN_ID
-from keyboards import (user_option, admin_option, get_number)
+from keyboards import user_option, admin_option, get_number
 
-@router.message(F.text == 'Parolni o\'zgartirish 🔐')
-async def get_password(message:types.Message, state:FSMContext):
-    await message.answer('Iltimos telefon raqamingizni bering 📱', reply_markup=get_number)
+router = Router()
+
+
+@router.message(F.text == "Parolni o'zgartirish 🔐")
+async def ask_phone(message: types.Message, state: FSMContext):
+    await message.answer('Telefon raqamingizni yuboring 📱', reply_markup=get_number)
     await state.set_state(PasswordState.wait)
 
+
 @router.message(PasswordState.wait, F.contact)
-async def get_phone_number(message:types.Message, state:FSMContext):
-    contact = message.contact
-    phone_number = contact.phone_number
-    await message.answer('Yangi parolni kiriting: ')
-    await state.update_data(wait = phone_number)
+async def get_phone(message: types.Message, state: FSMContext):
+    phone = message.contact.phone_number.strip().lstrip('+')
+    await state.update_data(phone=phone)
+    await message.answer('Yangi parolni kiriting:')
     await state.set_state(PasswordState.password)
 
+
 @router.message(PasswordState.password)
-async def get_password(message:types.Message, state:FSMContext):
+async def set_password(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    phone_number = data.get('wait')
-    person = update_password(phone_number, message.text)
-    print(person)
-    user_id = message.from_user.id
-    if user_id in ADMIN_ID:
-        await message.answer('Muvoffaqiyatli amalga oshirildi', reply_markup=admin_option)
+    phone = data.get('phone')
+    result = update_password(phone, message.text)
+    markup = admin_option if message.from_user.id in ADMIN_ID else user_option
+
+    if result == 'not_found':
+        await message.answer(
+            '❌ Bu telefon raqam tizimda topilmadi.\n'
+            'Iltimos, avval ilovada ro\'yxatdan o\'ting.',
+            reply_markup=markup
+        )
+    elif result:
+        await message.answer('✅ Parol muvaffaqiyatli o\'zgartirildi.', reply_markup=markup)
     else:
-        await message.answer('Muvoffaqiyatli amalga oshirildi', reply_markup=user_option)
+        await message.answer('⚠️ Xatolik yuz berdi. Qayta urinib ko\'ring.', reply_markup=markup)
+
+    await state.clear()
